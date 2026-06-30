@@ -34,92 +34,151 @@ const PRIORITY_FG: Record<string, string> = {
 }
 
 function exportToExcel(systems: TorSystem[]) {
-  const totalModules = systems.reduce((a, s) => a + s.modules.length, 0)
-  const totalDays = systems.reduce((a, s) => a + s.modules.reduce((b, m) => b + (m.estimated_days ?? 0), 0), 0)
-  const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  // ใช้ dynamic import เพื่อไม่ให้ xlsx ถูกบันเดิลเข้า initial bundle
+  import('xlsx').then((XLSX) => {
+    const today = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    const totalModules = systems.reduce((a, s) => a + s.modules.length, 0)
+    const totalDays = systems.reduce((a, s) => a + s.modules.reduce((b, m) => b + (m.estimated_days ?? 0), 0), 0)
 
-  let bodyRows = ''
+    // ── สร้างข้อมูลแบบ Array of Arrays (AOA) เพื่อคุมตำแหน่งแถว/คอลัมน์ได้แม่นยำ ──
+    const aoa: (string | number)[][] = []
 
-  systems.forEach((sys, sysIdx) => {
-    const c = XLS_SYSTEM_COLORS[sysIdx % XLS_SYSTEM_COLORS.length]
-    const sysDays = sys.modules.reduce((a, m) => a + (m.estimated_days ?? 0), 0)
+    aoa.push(['Systems & Modules Breakdown'])
+    aoa.push([`วันที่ออกเอกสาร: ${today}`, '', '', `จำนวน Systems: ${systems.length}`, '', '', `รวม Man-days: ${totalDays} MD`])
+    aoa.push([]) // แถวว่างคั่น
 
-    // แถบหัวข้อ System (merged-look แบบ Feature List "Back Office ฝั่ง...")
-    bodyRows += `
-      <tr>
-        <td colspan="7" style="background:${c.header};color:#fff;font-weight:bold;font-size:12px;padding:8px 10px;border:1px solid #999;">
-          ${sys.system_id} — ${sys.system_name} <span style="font-weight:normal;font-size:10px;opacity:.85">(${sys.system_type} · ${sys.suggested_tech_stack})</span>
-        </td>
-        <td style="background:${c.header};color:#fff;font-weight:bold;text-align:center;border:1px solid #999;">${sys.modules.length} modules</td>
-        <td style="background:${c.header};color:#fff;font-weight:bold;text-align:center;border:1px solid #999;">${sysDays} MD</td>
-      </tr>`
+    aoa.push(['Module Code', 'Module Name', 'TOR Ref', 'Priority', 'Est. Days', 'Implementation Details', 'Acceptance Criteria', 'Risks', 'Dependencies'])
 
-    sys.modules.forEach((mod, modIdx) => {
-      const rowBg = modIdx % 2 === 0 ? c.light : '#FFFFFF'
-      const prioBg = PRIORITY_BG[mod.priority] ?? '#EEEEEE'
-      const prioFg = PRIORITY_FG[mod.priority] ?? '#333333'
+    // เก็บตำแหน่งแถวพิเศษไว้ใส่สีทีหลัง
+    const systemHeaderRows: number[] = []
+    const moduleRows: { row: number; priority: string }[] = []
 
-      bodyRows += `
-      <tr>
-        <td style="background:${rowBg};border:1px solid #ddd;font-family:monospace;font-size:10px;color:#666;text-align:center;">${mod.module_code}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;font-weight:600;font-size:11px;">${mod.module_name}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;font-size:10px;color:#888;">${mod.tor_reference}</td>
-        <td style="background:${prioBg};color:${prioFg};border:1px solid #ddd;font-weight:bold;text-align:center;font-size:10px;">${mod.priority}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;text-align:center;font-weight:bold;color:#C55A11;">${mod.estimated_days ?? '-'}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;font-size:10px;line-height:1.5;">${(mod.implementation_details || []).map(d => '• ' + d).join('<br/>')}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;font-size:10px;line-height:1.5;">${(mod.acceptance_criteria || []).map(d => '✓ ' + d).join('<br/>')}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;font-size:10px;line-height:1.5;color:#9C0006;">${(mod.risks || []).map(d => '⚠ ' + d).join('<br/>')}</td>
-        <td style="background:${rowBg};border:1px solid #ddd;font-size:10px;color:#666;">${(mod.dependencies || []).join(', ') || '-'}</td>
-      </tr>`
+    systems.forEach((sys) => {
+      const sysDays = sys.modules.reduce((a, m) => a + (m.estimated_days ?? 0), 0)
+      systemHeaderRows.push(aoa.length)
+      aoa.push([
+        `${sys.system_id} — ${sys.system_name} (${sys.system_type} · ${sys.suggested_tech_stack})`,
+        '', '', '', '', '', '',
+        `${sys.modules.length} modules`,
+        `${sysDays} MD`,
+      ])
+
+      sys.modules.forEach((mod) => {
+        moduleRows.push({ row: aoa.length, priority: mod.priority })
+        aoa.push([
+          mod.module_code,
+          mod.module_name,
+          mod.tor_reference,
+          mod.priority,
+          mod.estimated_days ?? '',
+          (mod.implementation_details || []).map(d => '• ' + d).join('\n'),
+          (mod.acceptance_criteria || []).map(d => '✓ ' + d).join('\n'),
+          (mod.risks || []).map(d => '⚠ ' + d).join('\n'),
+          (mod.dependencies || []).join(', '),
+        ])
+      })
     })
+
+    aoa.push([]) // แถวว่างคั่น
+    const summaryRow = aoa.length
+    aoa.push([`รวมทั้งหมด ${totalModules} Modules`, '', '', '', `${totalDays} Man-days`])
+
+    // ── สร้าง worksheet ──
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+    // ความกว้างคอลัมน์
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 26 }, { wch: 14 }, { wch: 10 }, { wch: 9 },
+      { wch: 40 }, { wch: 35 }, { wch: 32 }, { wch: 20 },
+    ]
+
+    // merge หัวข้อ title และแถว system header
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, // title row
+      ...systemHeaderRows.map(r => ({ s: { r, c: 0 }, e: { r, c: 6 } })),
+    ]
+
+    // ปรับความสูงแถวให้พอดีกับข้อความหลายบรรทัด
+    ws['!rows'] = aoa.map((_, i) => {
+      const isModuleRow = moduleRows.some(m => m.row === i)
+      return isModuleRow ? { hpt: 60 } : { hpt: 20 }
+    })
+
+    // ── จัดสไตล์ (สี, ตัวหนา, border) — ใช้ xlsx-style API ผ่าน cell.s ──
+    const priorityColors: Record<string, { bg: string; fg: string }> = {
+      Critical: { bg: 'FFC7CE', fg: '9C0006' },
+      High:     { bg: 'FFEB9C', fg: '9C6500' },
+      Medium:   { bg: 'C6E0B4', fg: '375623' },
+      Low:      { bg: 'D9D9D9', fg: '595959' },
+    }
+
+    function setCellStyle(r: number, c: number, style: any) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' }
+      ws[addr].s = style
+    }
+
+    // Title row style
+    for (let c = 0; c <= 8; c++) {
+      setCellStyle(0, c, {
+        fill: { fgColor: { rgb: '1F1F3D' } },
+        font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 14 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      })
+    }
+    // Meta row style
+    for (let c = 0; c <= 8; c++) {
+      setCellStyle(1, c, {
+        fill: { fgColor: { rgb: 'F2F2F2' } },
+        font: { sz: 10 },
+      })
+    }
+    // Column header style
+    for (let c = 0; c <= 8; c++) {
+      setCellStyle(3, c, {
+        fill: { fgColor: { rgb: '2D2D5F' } },
+        font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 10 },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } },
+      })
+    }
+    // System header rows
+    const sysColors = ['4472C4', '70AD47', 'FFC000', 'C55A11', '7030A0']
+    systemHeaderRows.forEach((r, idx) => {
+      const color = sysColors[idx % sysColors.length]
+      for (let c = 0; c <= 8; c++) {
+        setCellStyle(r, c, {
+          fill: { fgColor: { rgb: color } },
+          font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 11 },
+          alignment: { vertical: 'center' },
+        })
+      }
+    })
+    // Module rows — สีตาม priority ที่คอลัมน์ Priority, สีอ่อนสลับแถวที่อื่น
+    moduleRows.forEach(({ row, priority }, idx) => {
+      const prio = priorityColors[priority] ?? { bg: 'EEEEEE', fg: '333333' }
+      const rowBg = idx % 2 === 0 ? 'F7F8FF' : 'FFFFFF'
+      for (let c = 0; c <= 8; c++) {
+        setCellStyle(row, c, {
+          fill: { fgColor: { rgb: c === 3 ? prio.bg : rowBg } },
+          font: { sz: 10, color: { rgb: c === 3 ? prio.fg : '333333' }, bold: c === 3 },
+          alignment: { vertical: 'top', wrapText: true, horizontal: c === 3 || c === 4 ? 'center' : 'left' },
+          border: { top: { style: 'hair', color: { rgb: 'DDDDDD' } }, bottom: { style: 'hair', color: { rgb: 'DDDDDD' } } },
+        })
+      }
+    })
+    // Summary row
+    for (let c = 0; c <= 8; c++) {
+      setCellStyle(summaryRow, c, {
+        fill: { fgColor: { rgb: 'FFF2CC' } },
+        font: { bold: true, color: { rgb: '7F6000' }, sz: 11 },
+      })
+    }
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Systems & Modules')
+    XLSX.writeFile(wb, 'systems-modules.xlsx', { cellStyles: true })
   })
-
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-<head><meta charset="UTF-8">
-<style>
-  body{font-family:Calibri,Arial,sans-serif}
-  table{border-collapse:collapse;width:100%}
-  .title-bar{background:#1F1F3D;color:#fff;font-size:16px;font-weight:bold;padding:12px;text-align:center}
-  .meta-row td{background:#F2F2F2;border:1px solid #ddd;padding:6px 10px;font-size:11px;color:#333}
-  .col-head th{background:#2D2D5F;color:#fff;font-size:10px;font-weight:bold;text-transform:uppercase;padding:8px 6px;border:1px solid #999;text-align:left}
-  .summary-row td{background:#FFF2CC;border:1px solid #ddd;padding:8px 10px;font-size:11px;font-weight:bold;color:#7F6000}
-</style>
-</head><body>
-<table>
-  <tr><td colspan="9" class="title-bar">📋 Systems &amp; Modules Breakdown</td></tr>
-  <tr class="meta-row">
-    <td colspan="3"><b>วันที่ออกเอกสาร:</b> ${today}</td>
-    <td colspan="3"><b>จำนวน Systems:</b> ${systems.length}</td>
-    <td colspan="3"><b>รวม Man-days:</b> ${totalDays} MD</td>
-  </tr>
-  <tr><td colspan="9" style="height:6px;border:none"></td></tr>
-  <tr class="col-head">
-    <th style="width:70px">Module Code</th>
-    <th style="width:160px">Module Name</th>
-    <th style="width:90px">TOR Ref</th>
-    <th style="width:70px">Priority</th>
-    <th style="width:60px">Est. Days</th>
-    <th style="width:220px">Implementation Details</th>
-    <th style="width:200px">Acceptance Criteria</th>
-    <th style="width:180px">Risks</th>
-    <th style="width:120px">Dependencies</th>
-  </tr>
-  ${bodyRows}
-  <tr class="summary-row">
-    <td colspan="3">รวมทั้งหมด ${totalModules} Modules</td>
-    <td colspan="2" style="text-align:center">${totalDays} Man-days</td>
-    <td colspan="4"></td>
-  </tr>
-</table>
-</body></html>`
-
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'systems-modules.xls'
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
 export function PageSystems({ systems }: { systems: TorSystem[] }) {
