@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { font-family: var(--font-inter, 'Inter', sans-serif); }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+}
+
+@layer utilities {
+  .gradient-brand { background: linear-gradient(135deg, #6c63ff, #4fc3f7); }
+  .gradient-text  {
+    background: linear-gradient(135deg, #6c63ff, #4fc3f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+/* ─── Print: show only quotation area ─────────────────── */
+@media print {
+  body * { visibility: hidden; }
+  #quotation-print-area,
+  #quotation-print-area * { visibility: visible; display: revert !important; }
+  #quotation-print-area {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: #fff;
+    padding: 0;
+  }
+  .no-print { display: none !important; }
+}
